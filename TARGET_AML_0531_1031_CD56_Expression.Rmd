@@ -1,0 +1,345 @@
+---
+title: "CD56 in Adult and Ped AML"
+author: "Jenny Smith"
+date: "August 2, 2018"
+output: html_document
+---
+
+
+```{r setup}
+library(knitr)
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=50),tidy=TRUE, fig.align='center', fig.height = 8, fig.width = 10)
+knitr::opts_knit$set(root.dir = '/fh/fast/meshinchi_s/workingDir/TARGET/AML_TARGET/RNA/mRNAseq/analysis/2018.08.02_CD56_Expn_Ped_Adult/')
+options(stringsAsFactors = FALSE)
+```
+
+
+
+```{r message=FALSE}
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(stringr)
+library(reshape2)
+library(tidyr)
+library(tibble)
+library(ggpubr)
+getwd()
+```
+
+
+```{r}
+source("~/scripts/RNAseq_Analysis/Waterfallplots/Waterfall_Barplot_Function_2017.05.22.r")
+source("~/scripts/RNAseq_Analysis/DifferentialExpn_PathwayAnalysis/ggplot_Themes_Function.r")
+```
+
+
+#Read in the CDEs 
+
+```{r}
+AML1031 <- read.csv("~/reference_mapping-files/TARGET_AML_1031_CDE_cleaned_7.06.2018.csv",
+                    stringsAsFactors = FALSE, row.names = 1)
+
+head(AML1031[,1:5])
+# dim(AML1031)
+```
+
+
+```{r}
+AML0531 <- read.csv("~/reference_mapping-files/TARGET_AML_current_asof_june30_2016_UPDATED_CLEAN_4.19.18.csv", 
+                    stringsAsFactors = FALSE)
+
+head(AML0531[,1:5])
+# dim(AML0531) #1000 by 90
+```
+
+
+```{r}
+TOIL.CDE <- read.delim("/fh/fast/meshinchi_s/workingDir/TARGET/NormalTissue_GTEX/Clinical/TcgaTargetGTEX_phenotype.txt", sep="\t", header=TRUE)
+
+head(TOIL.CDE)
+# dim(TOIL.CDE) #19131     7
+```
+
+
+#Read in the expression data 
+
+```{r}
+# LD.0531 <- read.csv("~/RNA_seq_Analysis/0000.00.03_Expression_Matrices/TARGET_AML_AAML0531_dupGenesRemoved_TPM.csv", stringsAsFactors = FALSE, row.names = 1)
+# 
+# head(LD.0531[,1:5])
+# dim(LD.0531) #494 samples
+```
+
+```{r}
+# HD.0531 <- read.csv("~/RNA_seq_Analysis/0000.00.03_Expression_Matrices/TARGET_AML_DxSamples_dupGenesRemoved_TPM_Aug2014.csv",
+#                     stringsAsFactors = FALSE, row.names = 1)
+# 
+# colnames(HD.0531) <- str_split_fixed(colnames(HD.0531), "\\.", n=5)[,3]
+# 
+# head(HD.0531[,1:5])
+# dim(HD.0531) 51,482 genes by 160 samples
+```
+
+
+```{r}
+# HD.1031 <- read.csv("~/RNA_seq_Analysis/0000.00.03_Expression_Matrices/TARGET_AML_AAML1031_dupGenesRemoved_TPM.csv", 
+#                     stringsAsFactors = FALSE, row.names = 1)
+# 
+# head(HD.1031[,1:5])
+# dim(HD.1031) #1111 samples
+```
+
+
+```{r}
+TOIL <- get(load("/fh/fast/meshinchi_s/workingDir/TARGET/NormalTissue_GTEX/RNA/mRNAseq/level3/gene/2016Sept_UCSC_Illumina_data/Rdata/TcgaTargetGtex_rsem_dupGenesRemoved_tpm.RData"))
+
+head(TOIL[,1:5])
+# dim(TOIL) #58531 19260
+```
+
+
+```{r}
+# TCGA_Targ <- get(load("~/RNA_seq_Analysis/0000.00.03_Expression_Matrices/TcgaTargetGtex_NormBlood_AML_rsem_geneSymbol_dupGenesRemoved_tpm.RData"))
+# 
+# head(TCGA_Targ[,1:5])
+# dim(TCGA_Targ) 58,531 and 738  samples
+```
+
+
+#Define Groups and Phenotype labels
+
+```{r}
+CBFGLIS.pos <- subset(AML0531, CBFA2T3.GLIS2=="Yes")$TARGET.USI.1
+```
+
+
+```{r}
+TOIL.CDE.2 <- TOIL.CDE %>%
+  mutate(Category=gsub(" - ", ".", paste(X_study, primary.disease.or.tissue, sep="."))) %>%
+  mutate(Category=gsub(" ","", Category)) %>%
+  mutate(Colname=gsub("-","\\.", sample))
+
+head(TOIL.CDE.2)
+```
+
+```{r}
+adult.cancer <- TOIL.CDE.2 %>%
+  filter(grepl("TCGA", Category)) %>%
+  select(Colname,Category) 
+
+adult.cancer.pheno <- adult.cancer$Category %>%
+  set_names(adult.cancer$Colname)
+
+head(adult.cancer.pheno)
+table(adult.cancer.pheno)
+```
+
+```{r}
+child.cancer <- TOIL.CDE.2 %>%
+  filter(grepl("TARGET", Category)) %>%
+  mutate(USI=str_split_fixed(Colname, "\\.", n=4)[,3]) %>%
+  mutate(CBFA2T3.GLIS2=ifelse(USI %in% CBFGLIS.pos, "CBFA2T3.GLIS2","Other")) %>%
+  # filter(CBFA2T3.GLIS2=="CBFA2T3.GLIS2") %>%
+  select(Colname,USI,CBFA2T3.GLIS2, Category) 
+
+child.cancer.pheno <- child.cancer$Category %>%
+  set_names(child.cancer$Colname)
+
+head(child.cancer.pheno)
+table(child.cancer.pheno)
+```
+
+```{r}
+normal.tissue <- TOIL.CDE.2 %>%
+  filter(grepl("GTEX", Category)) %>%
+  filter(!grepl("CellLine|Cells", Category)) %>%
+  select(Colname,Category) 
+
+normal.tissue.pheno <-normal.tissue$Category %>%
+  set_names(normal.tissue$Colname)
+
+head(normal.tissue.pheno)
+table(normal.tissue.pheno)
+```
+
+
+#Melted Dataframe with CD56 
+
+
+```{r}
+NCAM1 <- TOIL %>%
+  rownames_to_column("Gene") %>%
+  filter(grepl("NCAM1", Gene)) %>%
+  filter(!grepl("AS1", Gene)) %>%
+  gather(Patient,TPM,-Gene) %>%
+  mutate(log2.TPM=log2(TPM+1))
+
+options(scipen = 999)
+# head(NCAM1)
+```
+
+```{r}
+NCAM1.GLIS <- NCAM1 %>%
+  inner_join(., filter(child.cancer, CBFA2T3.GLIS2=="CBFA2T3.GLIS2"), by=c("Patient"="Colname")) %>%
+  summarise_at(vars(log2.TPM), funs(mean=mean, median=median, max=max))
+
+# NCAM1.GLIS
+```
+
+
+```{r}
+adult.cancer.NCAM1 <- NCAM1 %>%
+  inner_join(., adult.cancer, by=c("Patient"="Colname")) %>%
+  filter(grepl("^TCGA.[A-Z]", Category))
+
+head(adult.cancer.NCAM1)
+# dim(adult.cancer.NCAM1) # 10535     4
+# write.csv(adult.cancer.NCAM1, "TCGA_AllCohorts_NCAM1_Expression_Toil_TPM.csv", row.names = FALSE)
+```
+
+
+```{r}
+child.cancer.NCAM1 <- NCAM1 %>%
+  inner_join(., child.cancer, by=c("Patient"="Colname")) %>%
+  mutate(Category=gsub("TARGET.AcuteMyeloidLeukemia,InductionFailureSubproject", "TARGET.AML,InductionFailure", Category))
+
+head(child.cancer.NCAM1)
+# dim(child.cancer.NCAM1) #734   7
+# write.csv(child.cancer.NCAM1, "TARGET_AllCohort_NCAM1_Expression_TOIL_TPM.csv", row.names = FALSE)
+```
+
+```{r}
+normal.tissue.NCAM1 <- NCAM1 %>%
+  inner_join(., normal.tissue, by=c("Patient"="Colname")) %>%
+  filter(!grepl("Brain", Category))#%>%
+  # filter(!grepl("Pituitary|MinorSalivaryGland|Adipose.Visceral(Omentum)|Adipose.Subcutaneous|Esophagus.GastroesophagealJunction|AdrenalGland", Category))
+
+# length(table(normal.tissue.NCAM1$Category)) # 38 or 33 when filtered
+# write.csv(normal.tissue.NCAM1, "GTEX_NormalTissues_NCAM1_Expression_TOIL_TPM.csv", row.names = FALSE)
+```
+
+
+```{r}
+normal.brain.NCAM1 <- NCAM1 %>%
+  inner_join(., normal.tissue, by=c("Patient"="Colname")) %>%
+  filter(grepl("Brain", Category))
+
+# head(normal.tissue.NCAM1)
+# table(normal.brain.NCAM1$Category) #13 
+# write.csv(normal.brain.NCAM1, "GTEX_NormalBrain_NCAM1_Expression_TOIL_TPM.csv", row.names = FALSE)
+```
+
+
+
+#Create Box Plots 
+
+
+```{r}
+library(RColorBrewer)
+set.seed(2)
+colors <- c("turquoise4", "yellow", "firebrick1", 
+                "blue","seagreen2", "maroon", "orchid", "cornflowerblue", 
+                "darkblue", "azure4", "chartreuse2", "darkmagenta","darkorange", 
+                "deeppink", "darkslategray3", "forestgreen", "navajowhite1",
+                "brown3", "darkgoldenrod3", "deepskyblue1", "lightcoral", 
+                "mediumorchid", "saddlebrown", brewer.pal(n=12, "Set3"),"#666666","salmon","aliceblue") 
+
+# sample(rainbow(n=10),size = 10, replace = FALSE)
+```
+
+ guide = guide_legend(override.aes = list(shape = rep(16, 33)))
+ 
+```{r fig.width=14, fig.height=8}
+# set.seed(1)
+# col1 <- sample(rainbow(n=33),size = 33, replace = FALSE)
+
+# tiff("TCGA_NCAM1_Expression_Boxplots.tiff", height = 8, width = 14, units="in", res=600)
+ggplot(adult.cancer.NCAM1, aes(x=reorder(Category,log2.TPM, FUN=median), y=log2.TPM, fill=Category)) + 
+  geom_boxplot() +
+  # geom_violin() +
+  geom_hline(yintercept = NCAM1.GLIS$mean, color="red", size=1.5, alpha=0.5) +
+  labs(x="", title="NCAM1 (CD56) Expression in TCGA",y="Log2(TPM+1)") + 
+  theme_rotateLabs +
+  theme(plot.margin = margin(0.1, 0.1, 0.1, 1.25, "in"), 
+        legend.title = element_blank(), 
+        axis.text.x = element_text(size=15), 
+        legend.background=element_blank(),
+        legend.key=element_blank(), 
+        legend.key.size=unit(x = 8,units="mm"),
+        legend.position="left") + 
+  scale_fill_manual(values=colors, guide=FALSE)
+# dev.off()
+```
+
+```{r fig.width=10, fig.height=7}
+# tiff("TARGET_NCAM1_Expression_Boxplots.tiff", height = 7, width = 10, units="in", res=600)
+ggplot(child.cancer.NCAM1, aes(x=reorder(Category,log2.TPM, FUN=median), y=log2.TPM, fill=Category)) + 
+  geom_boxplot() +
+  # geom_violin() +
+  geom_hline(yintercept = NCAM1.GLIS$mean, color="red", size=1.5, alpha=0.5) +
+  labs(x="", title="NCAM1 (CD56) Expression in TARGET",y="Log2(TPM+1)") + 
+  theme_rotateLabs +
+  theme(plot.margin = margin(0.1, 0.1, 0.1, 2, "in"), 
+        legend.title = element_blank(), 
+        axis.text.x = element_text(angle = 25,hjust=1,vjust = 1, size = 18), 
+        legend.background=element_blank(),
+        legend.key=element_blank(), 
+        legend.key.size=unit(x = 8,units="mm"),
+        legend.position="left") + 
+  scale_fill_manual(values=colors, guide=FALSE)
+# dev.off()
+```
+
+
+```{r fig.width=14, fig.height=8}
+# tiff("GTEX_NCAM1_Expression_Boxplots.tiff", height = 8, width = 14, units="in", res=600)
+ggplot(normal.tissue.NCAM1, aes(x=reorder(Category,log2.TPM, FUN=median), y=log2.TPM, fill=Category)) + 
+  geom_boxplot() +
+  # geom_violin() +
+  geom_hline(yintercept = NCAM1.GLIS$mean, color="red", size=1.5, alpha=0.5) +
+  labs(x="", title="NCAM1 (CD56) Expression in GTEX",y="Log2(TPM+1)") + 
+  theme_rotateLabs +
+  theme(plot.margin = margin(0.1, 0.1, 0.1, 1.25, "in"), 
+        legend.title = element_blank(), 
+        axis.text.x = element_text(angle = 45,hjust=1,vjust = 1, size = 14), 
+        legend.background=element_blank(),
+        legend.key=element_blank(), 
+        legend.key.size=unit(x = 8,units="mm"),
+        legend.position="left") + 
+  scale_fill_manual(values=colors, guide=FALSE)
+# dev.off()
+```
+
+
+```{r fig.width=10, fig.height=7}
+# tiff("GTEX_NormalBrain_NCAM1_Expression_Boxplots.tiff", height = 7, width = 10, units="in", res=600)
+ggplot(normal.brain.NCAM1, aes(x=reorder(Category,log2.TPM, FUN=median), y=log2.TPM, fill=Category)) + 
+  geom_boxplot() +
+  # geom_violin() +
+  geom_hline(yintercept = NCAM1.GLIS$mean, color="red", size=1.5, alpha=0.5) +
+  labs(x="", title="NCAM1 (CD56) Expression in GTEX Brain Tissues",y="Log2(TPM+1)") + 
+  theme_rotateLabs +
+  theme(plot.margin = margin(0.1, 0.1, 0.1, 1.25, "in"), 
+        legend.title = element_blank(), 
+        axis.text.x = element_text(angle = 45,hjust=1,vjust = 1, size = 18), 
+        legend.background=element_blank(),
+        legend.key=element_blank(), 
+        legend.key.size=unit(x = 8,units="mm"),
+        legend.position="left") + 
+  scale_fill_manual(values=colors, guide=FALSE)
+# dev.off()
+```
+
+
+
+
+
+#Session Info
+
+```{r}
+sessionInfo()
+```
+
+
+
